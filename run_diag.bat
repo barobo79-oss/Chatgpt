@@ -11,6 +11,6 @@ if not exist "%~dp0monitor_diag.ps1" (
   pause
   exit /b 1
 )
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0monitor_diag.ps1"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0monitor_diag.ps1"
 echo.
 pause
