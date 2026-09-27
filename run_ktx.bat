@@ -17,14 +17,12 @@ if errorlevel 1 (
   exit /b 1
 )
 
-REM 설정 파일이 없으면 예시를 복사
+REM 설정 파일이 없으면 예시를 복사하고 곧바로 웹 설정 화면을 엽니다
 if not exist "ktx_config.json" (
-  echo [안내] ktx_config.json 이 없어 예시 파일을 복사합니다.
+  echo [안내] 처음 실행이라 설정 화면을 엽니다. 브라우저에서 여정을 입력하고 저장하세요.
   copy /y "ktx_config.example.json" "ktx_config.json" >nul
-  echo        메모장으로 ktx_config.json 을 열어 여정/날짜를 수정한 뒤 다시 실행하세요.
-  notepad "ktx_config.json"
-  pause
-  exit /b 0
+  python -m ktx_helper web
+  goto end
 )
 
 echo.
