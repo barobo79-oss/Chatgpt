@@ -1,0 +1,34 @@
+{
+  "trips": [
+    {
+      "name": "서울→부산 추석 귀성",
+      "dep": "서울",
+      "arr": "부산",
+      "date": "2026-10-03",
+      "time_from": "08:00",
+      "time_to": "12:00",
+      "train_type": "KTX",
+      "passengers": 2
+    }
+  ],
+  "reminders": {
+    "use_default_windows": true,
+    "days_before": 3,
+    "extra_times": ["2026-09-30 10:00"]
+  },
+  "notify": {
+    "desktop": true,
+    "telegram": {
+      "enabled": false,
+      "bot_token": "여기에_텔레그램_봇토큰",
+      "chat_id": "여기에_본인_chat_id"
+    },
+    "webhook": {
+      "enabled": false,
+      "url": ""
+    }
+  },
+  "opendata": {
+    "service_key": ""
+  }
+}

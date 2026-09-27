@@ -51,3 +51,11 @@
 2. DisplayLink 계열 어댑터면 [최신 드라이버 설치](https://www.synaptics.com/products/displaylink-graphics/downloads) 후 재부팅
 3. `Win + Ctrl + Shift + B` — 그래픽 드라이버 리셋 단축키
 4. 어댑터를 **다른 PC**에 연결해 동작 확인 → 다른 PC에서도 안 잡히면 어댑터 고장(교체 필요)
+
+---
+
+## 🚄 KTX 취소표 예약대기 도우미
+
+KTX 표 잡기 도구가 이 저장소에 추가되었습니다. 코레일 매크로가 아니라, **공식 예약대기 안내 +
+취소표가 잘 나오는 시간대 알림 + 공공데이터 열차조회**로 표 잡을 확률을 합법적으로 높이는 도구입니다.
+자세한 내용은 **[README_KTX.md](README_KTX.md)** 를 참고하세요. (Windows는 `run_ktx.bat` 더블클릭)
