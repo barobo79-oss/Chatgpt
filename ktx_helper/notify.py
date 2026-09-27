@@ -62,22 +62,46 @@ def _desktop(title: str, message: str) -> bool:
     return False
 
 
-def _telegram(token: str, chat_id: str, title: str, message: str) -> bool:
+def telegram_send_result(token: str, chat_id: str, title: str, message: str) -> tuple[bool, str]:
+    """텔레그램 전송 결과를 (성공여부, 사유) 로 돌려줍니다.
+
+    4xx(요청 자체가 잘못됨: chat_id 오류 등)는 재시도해도 소용없으므로 즉시
+    중단하고 서버가 준 사유(description)를 함께 돌려줍니다. 5xx/네트워크 오류만
+    재시도합니다.
+    """
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     data = urllib.parse.urlencode(
         {"chat_id": chat_id, "text": f"🔔 {title}\n{message}", "disable_web_page_preview": "true"}
     ).encode("utf-8")
-    last: Exception | None = None
+    last = ""
     for attempt in range(_RETRIES):
         try:
             with urllib.request.urlopen(url, data=data, timeout=_TIMEOUT) as resp:
-                return 200 <= resp.status < 300
+                if 200 <= resp.status < 300:
+                    return True, "ok"
+                last = f"HTTP {resp.status}"
+        except urllib.error.HTTPError as exc:  # URLError 의 하위 — 먼저 잡아야 함
+            detail = ""
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("description", "")
+            except (ValueError, OSError):
+                pass
+            reason = f"{exc.code} {detail or exc.reason}".strip()
+            if 400 <= exc.code < 500:  # 요청 문제 — 재시도 무의미
+                return False, reason
+            last = reason
         except (urllib.error.URLError, OSError) as exc:
-            last = exc
-            if attempt < _RETRIES - 1:
-                time.sleep(2**attempt)  # 1초 → 2초 백오프
-    print(f"   (텔레그램 전송 실패 {_RETRIES}회 시도: {last})", file=sys.stderr)
-    return False
+            last = str(exc)
+        if attempt < _RETRIES - 1:
+            time.sleep(2**attempt)
+    return False, last
+
+
+def _telegram(token: str, chat_id: str, title: str, message: str) -> bool:
+    ok, detail = telegram_send_result(token, chat_id, title, message)
+    if not ok:
+        print(f"   (텔레그램 전송 실패: {detail})", file=sys.stderr)
+    return ok
 
 
 def _webhook(url: str, title: str, message: str) -> bool:

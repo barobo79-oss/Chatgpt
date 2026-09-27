@@ -364,12 +364,23 @@ class _Handler(BaseHTTPRequestHandler):
         self._json({"ok": True})
 
     def _test(self, tg: dict):
-        token, chat = str(tg.get("bot_token", "")), str(tg.get("chat_id", ""))
+        token, chat = str(tg.get("bot_token", "")).strip(), str(tg.get("chat_id", "")).strip()
         if not token or not chat:
             self._json({"ok": False, "error": "봇 토큰과 chat_id 가 필요합니다"})
             return
-        ok = notify.send_telegram(token, chat, "KTX 도우미", "설정 화면에서 보낸 테스트입니다. 🚄")
-        self._json({"ok": ok, "error": None if ok else "전송 실패(네트워크/토큰 확인)"})
+        ok, detail = notify.telegram_send_result(token, chat, "KTX 도우미", "설정 화면에서 보낸 테스트입니다. 🚄")
+        if ok:
+            self._json({"ok": True, "error": None})
+            return
+        low = detail.lower()
+        hint = ""
+        if "chat not found" in low or detail.startswith("400"):
+            hint = " → chat_id 를 확인하세요. 순수 숫자여야 하고, 봇에게 먼저 아무 메시지나 보낸 뒤라야 합니다."
+        elif "blocked" in low or detail.startswith("403"):
+            hint = " → 봇 대화창을 열어 먼저 메시지를 보내고(차단 해제), 다시 시도하세요."
+        elif detail.startswith("401") or "unauthorized" in low:
+            hint = " → 봇 토큰이 올바른지 확인하세요(폐기된 토큰일 수 있음)."
+        self._json({"ok": False, "error": f"전송 실패: {detail}{hint}"})
 
     def _reminders(self) -> list[Reminder]:
         cfg = build_config(self._load_raw())
