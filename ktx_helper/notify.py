@@ -15,13 +15,15 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from .config import NotifyConfig
 
-_TIMEOUT = 10
+_TIMEOUT = 20
+_RETRIES = 3
 
 
 def _console(title: str, message: str) -> None:
@@ -65,12 +67,17 @@ def _telegram(token: str, chat_id: str, title: str, message: str) -> bool:
     data = urllib.parse.urlencode(
         {"chat_id": chat_id, "text": f"🔔 {title}\n{message}", "disable_web_page_preview": "true"}
     ).encode("utf-8")
-    try:
-        with urllib.request.urlopen(url, data=data, timeout=_TIMEOUT) as resp:
-            return 200 <= resp.status < 300
-    except (urllib.error.URLError, OSError) as exc:
-        print(f"   (텔레그램 전송 실패: {exc})", file=sys.stderr)
-        return False
+    last: Exception | None = None
+    for attempt in range(_RETRIES):
+        try:
+            with urllib.request.urlopen(url, data=data, timeout=_TIMEOUT) as resp:
+                return 200 <= resp.status < 300
+        except (urllib.error.URLError, OSError) as exc:
+            last = exc
+            if attempt < _RETRIES - 1:
+                time.sleep(2**attempt)  # 1초 → 2초 백오프
+    print(f"   (텔레그램 전송 실패 {_RETRIES}회 시도: {last})", file=sys.stderr)
+    return False
 
 
 def _webhook(url: str, title: str, message: str) -> bool:

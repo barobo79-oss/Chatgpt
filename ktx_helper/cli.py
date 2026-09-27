@@ -163,9 +163,18 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 0 if all(results.values()) else 1
 
 
-def _get_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=10) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def _get_json(url: str, retries: int = 3, timeout: int = 20) -> dict:
+    last: Exception | None = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, OSError) as exc:
+            last = exc
+            if attempt < retries - 1:
+                print(f"  (재시도 {attempt + 1}/{retries - 1}...)", file=sys.stderr)
+                _time.sleep(2**attempt)
+    raise last if last else RuntimeError("요청 실패")
 
 
 def _save_telegram_to_config(config_path: str, token: str, chat_id: str) -> None:
@@ -213,6 +222,16 @@ def cmd_setup_telegram(args: argparse.Namespace) -> int:
         updates = _get_json(f"https://api.telegram.org/bot{token}/getUpdates")
     except (urllib.error.URLError, OSError, ValueError) as exc:
         print(f"텔레그램 서버 요청 실패: {exc}", file=sys.stderr)
+        print(
+            "\n[안내] 이 PC의 네트워크에서 텔레그램 접속이 지연/차단된 것 같습니다. 아래를 시도하세요:\n"
+            "  1) 잠시 후 명령을 다시 실행 (일시적 지연일 수 있음)\n"
+            "  2) 휴대폰 테더링(핫스팟)으로 PC를 연결한 뒤 다시 실행\n"
+            "  3) 그래도 안 되면: 휴대폰 브라우저에서\n"
+            "       https://api.telegram.org/bot<봇토큰>/getUpdates\n"
+            "     를 열어 \"chat\":{\"id\": 뒤의 숫자를 확인하고, 그 값과 봇 토큰을\n"
+            "     GitHub Actions 방식(README 6절-A)에 넣으면 PC 네트워크와 무관하게 알림이 옵니다.",
+            file=sys.stderr,
+        )
         return 1
     if not updates.get("ok"):
         print(f"봇 토큰이 유효하지 않습니다: {updates.get('description')}", file=sys.stderr)
