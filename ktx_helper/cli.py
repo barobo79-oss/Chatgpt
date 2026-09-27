@@ -309,6 +309,12 @@ def cmd_notify_window(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_web(args: argparse.Namespace) -> int:
+    from .webapp import serve
+
+    return serve(config_path=args.config, port=args.port, open_browser=not args.no_browser)
+
+
 def cmd_remind(args: argparse.Namespace) -> int:
     cfg = _load(args)
     reminders = upcoming(_all_reminders(cfg))
@@ -363,6 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("guide", help="취소표/예약대기 전략 요약을 출력").set_defaults(func=cmd_guide)
     sub.add_parser("plan", help="여정과 추천 확인 시각을 출력").set_defaults(func=cmd_plan)
+
+    p_web = sub.add_parser("web", help="브라우저 설정 화면 열기(메모장 대신, 추천)")
+    p_web.add_argument("--port", type=int, default=8777, help="포트(기본 8777)")
+    p_web.add_argument("--no-browser", action="store_true", help="브라우저 자동 열기 끄기")
+    p_web.set_defaults(func=cmd_web)
 
     p_ics = sub.add_parser("ics", help="추천 확인 시각을 캘린더(.ics)로 내보내기")
     p_ics.add_argument("-o", "--out", default="ktx_reminders.ics", help="출력 파일명")

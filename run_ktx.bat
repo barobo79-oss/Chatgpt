@@ -29,19 +29,21 @@ if not exist "ktx_config.json" (
 
 echo.
 echo 무엇을 할까요?
-echo   [1] 전략 요약 보기      (guide)
+echo   [1] 설정 화면 열기(웹)   (web - 여정 편집, 추천)
 echo   [2] 여정/알림시각 확인   (plan)
 echo   [3] 캘린더로 내보내기    (ics)
 echo   [4] 알림 스케줄러 실행   (remind - 창을 켜 두세요)
 echo   [5] 알림 테스트          (test)
+echo   [6] 전략 요약 보기      (guide)
 echo.
-set /p choice="번호 입력 (기본 2): "
+set /p choice="번호 입력 (기본 1): "
 
-if "%choice%"=="1" ( python -m ktx_helper guide & goto end )
+if "%choice%"=="2" ( python -m ktx_helper plan & goto end )
 if "%choice%"=="3" ( python -m ktx_helper ics & goto end )
 if "%choice%"=="4" ( python -m ktx_helper remind & goto end )
 if "%choice%"=="5" ( python -m ktx_helper test & goto end )
-python -m ktx_helper plan
+if "%choice%"=="6" ( python -m ktx_helper guide & goto end )
+python -m ktx_helper web
 
 :end
 echo.

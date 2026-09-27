@@ -217,12 +217,21 @@ def load_config(path: str | Path) -> Config:
     except json.JSONDecodeError as exc:
         raise ConfigError(f"설정 파일 JSON 파싱 실패 ({p}): {exc}") from exc
 
+    return build_config(raw)
+
+
+def build_config(raw: dict[str, Any]) -> Config:
+    """이미 파싱된 dict 를 검증해 :class:`Config` 로 만듭니다(웹앱/저장 전 검증용).
+
+    Raises:
+        ConfigError: 형식이 잘못됐습니다.
+    """
     if not isinstance(raw, dict):
-        raise ConfigError("설정 파일 최상위는 객체여야 합니다")
+        raise ConfigError("설정 최상위는 객체여야 합니다")
 
     raw_trips = raw.get("trips")
     if not isinstance(raw_trips, list) or not raw_trips:
-        raise ConfigError("trips 에 최소 1개의 여정이 필요합니다")
+        raise ConfigError("여정을 최소 1개 추가해야 합니다")
 
     trips = [_parse_trip(t, i) for i, t in enumerate(raw_trips)]
     reminders = _parse_reminders(raw.get("reminders", {}) or {})
