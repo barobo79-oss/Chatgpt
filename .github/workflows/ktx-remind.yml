@@ -1,0 +1,54 @@
+name: KTX 취소표 텔레그램 알림
+
+# PC를 켜 두지 않아도 GitHub이 무료로 정해진 시각에 실행해, 텔레그램으로
+# "지금 취소표 확인하세요" 알림을 보냅니다. (좌석 자동조회/자동예매 아님 — 리마인더)
+#
+# 사전 준비 (GitHub 저장소 > Settings 에서 한 번만):
+#   1) Secrets and variables > Actions > Secrets 에 추가
+#        KTX_TG_TOKEN = 텔레그램 봇 토큰
+#        KTX_TG_CHAT  = 본인 chat_id
+#      (두 값은 `python -m ktx_helper setup-telegram` 실행 후 ktx_config.json 에서 확인)
+#   2) Variables 탭에 추가 (선택)
+#        KTX_UNTIL = 출발일(YYYY-MM-DD). 이 날짜가 지나면 자동으로 발송을 멈춥니다.
+#
+# 주의: 예약 실행(schedule)은 '기본 브랜치'에 이 파일이 있어야 동작합니다.
+#       바로 시험하려면 아래 Actions 탭에서 'Run workflow'(수동 실행)를 누르세요.
+
+on:
+  schedule:
+    # cron 은 UTC 기준입니다. 한국시간(KST) = UTC + 9.
+    - cron: "40 14 * * *"   # KST 23:40 — 미결제 예약 자동취소 시작
+    - cron: "15 15 * * *"   # KST 00:15 — 미결제 예약 자동취소 마무리
+    - cron: "20 18 * * *"   # KST 03:20 — 새벽 정산 후 잔여석 반영
+    - cron: "0 3 * * *"     # KST 12:00 — 낮 개인 일정취소
+    - cron: "0 10 * * *"    # KST 19:00 — 저녁 일정취소
+  workflow_dispatch: {}     # 수동 실행(테스트용)
+
+# 동시 실행 방지
+concurrency:
+  group: ktx-remind
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 취소표 리마인더 발송(텔레그램)
+        env:
+          KTX_TG_TOKEN: ${{ secrets.KTX_TG_TOKEN }}
+          KTX_TG_CHAT: ${{ secrets.KTX_TG_CHAT }}
+          KTX_UNTIL: ${{ vars.KTX_UNTIL }}
+        run: |
+          if [ -z "${KTX_TG_TOKEN}" ] || [ -z "${KTX_TG_CHAT}" ]; then
+            echo "::error::KTX_TG_TOKEN / KTX_TG_CHAT Secrets 가 설정되지 않았습니다. 저장소 Settings 에서 추가하세요."
+            exit 1
+          fi
+          python -m ktx_helper notify-window --until "${KTX_UNTIL:-2030-12-31}"

@@ -12,8 +12,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time as _time
+import urllib.error
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -160,6 +163,133 @@ def cmd_test(args: argparse.Namespace) -> int:
     return 0 if all(results.values()) else 1
 
 
+def _get_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _save_telegram_to_config(config_path: str, token: str, chat_id: str) -> None:
+    """텔레그램 설정을 config 파일에 병합 저장합니다(없으면 예시에서 생성)."""
+    p = Path(config_path)
+    if p.is_file():
+        data = json.loads(p.read_text(encoding="utf-8"))
+    else:
+        example = Path("ktx_config.example.json")
+        data = json.loads(example.read_text(encoding="utf-8")) if example.is_file() else {"trips": []}
+    notify_block = data.setdefault("notify", {})
+    notify_block.setdefault("desktop", True)
+    tg = notify_block.setdefault("telegram", {})
+    tg.update({"enabled": True, "bot_token": token, "chat_id": str(chat_id)})
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _telegram_creds(args: argparse.Namespace) -> tuple[str, str]:
+    """자격증명 우선순위: 환경변수 → config 파일."""
+    token, chat_id = notify.telegram_creds_from_env()
+    if token and chat_id:
+        return token, chat_id
+    try:
+        cfg = load_config(args.config)
+    except ConfigError:
+        return token, chat_id
+    if cfg.notify.telegram.enabled:
+        return cfg.notify.telegram.bot_token, cfg.notify.telegram.chat_id
+    return token, chat_id
+
+
+def cmd_setup_telegram(args: argparse.Namespace) -> int:
+    token = (args.bot_token or "").strip()
+    if not token:
+        try:
+            token = input("텔레그램 봇 토큰(@BotFather 에서 /newbot 으로 발급): ").strip()
+        except EOFError:
+            print("봇 토큰이 필요합니다. --bot-token 으로 전달하세요.", file=sys.stderr)
+            return 2
+    if not token:
+        print("봇 토큰이 비었습니다.", file=sys.stderr)
+        return 2
+
+    try:
+        updates = _get_json(f"https://api.telegram.org/bot{token}/getUpdates")
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        print(f"텔레그램 서버 요청 실패: {exc}", file=sys.stderr)
+        return 1
+    if not updates.get("ok"):
+        print(f"봇 토큰이 유효하지 않습니다: {updates.get('description')}", file=sys.stderr)
+        return 1
+
+    chats: dict[str, str] = {}
+    for upd in updates.get("result", []):
+        msg = upd.get("message") or upd.get("edited_message") or {}
+        chat = msg.get("chat") or {}
+        cid = chat.get("id")
+        if cid is not None:
+            chats[str(cid)] = chat.get("username") or chat.get("first_name") or str(cid)
+
+    if not chats:
+        print(
+            "최근 대화를 찾지 못했습니다. 아래 순서로 해 주세요:\n"
+            "  1) 텔레그램에서 방금 만든 봇과의 대화창을 연다\n"
+            "  2) 봇에게 아무 메시지(예: 안녕)나 보낸다\n"
+            "  3) 이 명령을 다시 실행한다",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.chat_id:
+        chat_id = args.chat_id
+    elif len(chats) == 1:
+        chat_id = next(iter(chats))
+    else:
+        print("여러 대화가 감지됐습니다. --chat-id 로 하나를 지정해 다시 실행하세요:")
+        for cid, name in chats.items():
+            print(f"  {cid}  ({name})")
+        return 1
+
+    _save_telegram_to_config(args.config, token, chat_id)
+    ok = notify.send_telegram(
+        token, chat_id, "KTX 도우미", "설정 완료! 이제 취소표 시간대에 여기로 알려 드릴게요. 🚄"
+    )
+    print(f"✅ 텔레그램 설정을 {args.config} 에 저장했습니다 (chat_id={chat_id}).")
+    print(f"   테스트 메시지 전송: {'성공 — 폰을 확인하세요!' if ok else '실패(토큰/네트워크 확인)'}")
+    return 0 if ok else 1
+
+
+def cmd_notify_window(args: argparse.Namespace) -> int:
+    """한 번 실행되는 리마인더 발송(작업 스케줄러/GitHub Actions cron 용).
+
+    지금이 취소표가 잘 나오는 시각이라는 전제로, 텔레그램으로 '지금 확인하세요'
+    알림을 1회 보냅니다. --until 이후면 조용히 종료합니다.
+    """
+    token, chat_id = _telegram_creds(args)
+    if not token or not chat_id:
+        print(
+            "텔레그램 자격증명이 없습니다. 환경변수 KTX_TG_TOKEN/KTX_TG_CHAT 또는 "
+            "'setup-telegram' 으로 설정하세요.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.until:
+        try:
+            until = datetime.strptime(args.until, "%Y-%m-%d").date()
+        except ValueError:
+            print("--until 은 'YYYY-MM-DD' 형식이어야 합니다.", file=sys.stderr)
+            return 2
+        if datetime.now().date() > until:
+            print(f"출발일({until})이 지나 발송하지 않습니다.")
+            return 0
+
+    title = args.title or "🚄 KTX 취소표 확인 시간"
+    message = args.message or (
+        "지금 코레일+ 앱에서 취소표/예약대기를 확인하세요! "
+        "(취소·잔여석이 잘 나오는 시간대입니다)"
+    )
+    ok = notify.send_telegram(token, chat_id, title, message)
+    print("전송:", "성공" if ok else "실패")
+    return 0 if ok else 1
+
+
 def cmd_remind(args: argparse.Namespace) -> int:
     cfg = _load(args)
     reminders = upcoming(_all_reminders(cfg))
@@ -222,6 +352,19 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("trains", help="공공데이터로 열차 시간표 조회(인증키 필요)").set_defaults(func=cmd_trains)
     sub.add_parser("test", help="알림 채널 테스트").set_defaults(func=cmd_test)
     sub.add_parser("remind", help="알림 스케줄러 실행(프로그램을 켜 둠)").set_defaults(func=cmd_remind)
+
+    p_setup = sub.add_parser("setup-telegram", help="텔레그램 봇 설정(chat_id 자동 감지)")
+    p_setup.add_argument("--bot-token", help="@BotFather 에서 발급받은 봇 토큰")
+    p_setup.add_argument("--chat-id", help="여러 대화가 감지될 때 지정할 chat_id")
+    p_setup.set_defaults(func=cmd_setup_telegram)
+
+    p_win = sub.add_parser(
+        "notify-window", help="리마인더 1회 발송(작업 스케줄러/GitHub Actions cron 용)"
+    )
+    p_win.add_argument("--title", help="알림 제목")
+    p_win.add_argument("--message", help="알림 내용")
+    p_win.add_argument("--until", help="이 날짜(YYYY-MM-DD) 이후로는 발송 안 함(출발일)")
+    p_win.set_defaults(func=cmd_notify_window)
     return parser
 
 

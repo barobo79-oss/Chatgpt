@@ -112,6 +112,8 @@ Windows라면 `run_ktx.bat` 을 **더블클릭**하면 메뉴가 뜹니다.
 | `python -m ktx_helper plan` | 등록한 여정과 **추천 확인 시각** 목록 출력 |
 | `python -m ktx_helper ics` | 추천 시각을 **캘린더(.ics)** 로 내보내기 (구글/휴대폰 캘린더에 가져오기) |
 | `python -m ktx_helper remind` | **알림 스케줄러 실행** — 창을 켜 두면 시간마다 알림 |
+| `python -m ktx_helper setup-telegram` | **텔레그램 봇 설정** — chat_id 자동 감지 후 저장 (5절) |
+| `python -m ktx_helper notify-window` | 리마인더 **1회 발송** — 자동화(GitHub Actions/작업 스케줄러)용 (6절) |
 | `python -m ktx_helper trains` | 공공데이터로 **열차 시간표 조회** (인증키 필요, 선택) |
 | `python -m ktx_helper test` | 알림 채널이 잘 되는지 테스트 |
 
@@ -127,25 +129,61 @@ Windows라면 `run_ktx.bat` 을 **더블클릭**하면 메뉴가 뜹니다.
 
 ## 5. 휴대폰으로 알림 받기 (텔레그램, 강력 추천)
 
-예매는 보통 휴대폰으로 하니, 휴대폰에 바로 뜨는 **텔레그램 알림**이 가장 실용적입니다.
+예매는 보통 휴대폰으로 하니, 휴대폰에 문자처럼 바로 뜨는 **텔레그램 알림**이 가장 실용적입니다.
+무료이고, 설정은 아래처럼 **1분** 이면 끝납니다.
 
-1. 텔레그램에서 **@BotFather** 에게 `/newbot` → 봇 토큰을 받는다.
-2. 만든 봇과 대화창을 연 뒤 아무 메시지나 보낸다.
-3. 브라우저에서 `https://api.telegram.org/bot<봇토큰>/getUpdates` 를 열어 `chat.id` 값을 확인한다.
-4. `ktx_config.json` 의 `telegram` 을 아래처럼 채운다.
+### 5-1. 텔레그램 봇 만들기 (한 번만)
 
-```json
-"telegram": { "enabled": true, "bot_token": "1234:abcd...", "chat_id": "123456789" }
+1. 텔레그램에서 **@BotFather** 를 찾아 `/newbot` → 안내대로 이름을 정하면 **봇 토큰**을 줍니다.
+2. 방금 만든 봇과의 대화창을 열고 **아무 메시지**(예: `안녕`)나 보냅니다.
+
+### 5-2. chat_id 자동 감지 + 저장 (명령 한 줄)
+
+```
+python -m ktx_helper setup-telegram --bot-token 여기에_봇토큰
 ```
 
-5. `python -m ktx_helper test` 로 확인.
+- 프로그램이 봇에게 온 메시지에서 **chat_id 를 자동으로 찾아** `ktx_config.json` 에 저장하고,
+  바로 **테스트 메시지**를 보냅니다. 폰에 알림이 뜨면 성공입니다.
+- (봇 토큰만 입력하고 싶으면 인자 없이 `python -m ktx_helper setup-telegram` 실행 → 물어봅니다.)
 
-> **캘린더(.ics) 방식**은 프로그램을 켜 둘 필요가 없어 더 편하고, **텔레그램/remind 방식**은
-> 실시간으로 알려 줍니다. 둘 다 써도 됩니다.
+이제 `remind` 나 아래 자동화가 이 채널로 알림을 보냅니다.
 
 ---
 
-## 6. 공공데이터 열차조회 (선택)
+## 6. "자동으로" 문자처럼 받기 — 두 가지 방법
+
+알림이 **자동으로** 오려면, 취소표 시각에 무언가가 대신 실행돼야 합니다. 두 가지 중 고르세요.
+
+### 방법 A. GitHub Actions (PC 안 켜도 됨 · 무료 · 추천) ☁️
+
+PC를 꺼 두어도 GitHub이 정해진 시각(자정 전후·새벽 등)에 대신 실행해 텔레그램으로 보냅니다.
+
+1. 이 저장소 **Settings → Secrets and variables → Actions** 로 갑니다.
+2. **Secrets** 에 두 개 추가:
+   - `KTX_TG_TOKEN` = 봇 토큰
+   - `KTX_TG_CHAT` = chat_id (위 `setup-telegram` 후 `ktx_config.json` 에서 확인)
+3. **Variables** 에 (선택) `KTX_UNTIL` = 출발일(예: `2026-10-03`). 이 날이 지나면 자동으로 멈춥니다.
+4. `.github/workflows/ktx-remind.yml` 이 **기본 브랜치**에 있으면 예약 실행이 켜집니다.
+   지금 바로 시험하려면 **Actions 탭 → KTX 취소표 텔레그램 알림 → Run workflow**(수동 실행).
+
+> 이 방식은 "이 시간대에 앱 확인하세요"라는 **리마인더**를 보냅니다. 좌석 자동조회·자동예매가
+> 아니라서 코레일 약관·탐지와 무관하고 안전합니다. 예매는 알림을 받고 메타문이 직접 합니다.
+
+### 방법 B. PC 자동 시작 (컴퓨터를 켜 두는 경우) 💻
+
+- Windows: **`install_autostart_win.bat`** 더블클릭 → `[1] 등록`. 로그인할 때마다 `remind` 가
+  백그라운드로 돌며 실시간 알림을 보냅니다. 해제는 같은 파일 `[2] 해제`.
+- 수동 실행만 원하면 `python -m ktx_helper remind` (창을 켜 두면 동작).
+
+> PC를 끄면 새벽 알림을 못 받습니다. 그 경우 **방법 A** 나 **캘린더(.ics, 4-2절)** 를 쓰세요.
+> 캘린더는 폰이 알아서 울려 줍니다.
+
+> 세 방식(텔레그램 실시간 / GitHub 클라우드 / 캘린더)은 함께 써도 됩니다.
+
+---
+
+## 7. 공공데이터 열차조회 (선택)
 
 `trains` 명령은 국토교통부 TAGO **열차정보 open API**(공식 공개 데이터)로 해당 여정의
 실제 열차편(열차번호·출발/도착시각)을 보여 줍니다. 예매·로그인과 무관하며, 사용자가
@@ -160,7 +198,7 @@ data.go.kr 에서 발급받은 **본인 인증키**로만 동작합니다.
 
 ---
 
-## 7. 이 도구가 하지 않는 것 (설계 원칙)
+## 8. 이 도구가 하지 않는 것 (설계 원칙)
 
 - ❌ 코레일 로그인 자동화
 - ❌ 좌석 자동 예매 / 자동 결제
@@ -174,7 +212,7 @@ data.go.kr 에서 발급받은 **본인 인증키**로만 동작합니다.
 
 ---
 
-## 8. 참고 자료 (조사 출처, 2026년)
+## 9. 참고 자료 (조사 출처, 2026년)
 
 - 코레일 매크로 탐지·차단 현황: [팍스경제TV](https://www.paxetv.com/news/articleView.html?idxno=248146), [다음 뉴스](https://v.daum.net/v/2b0eaM8Bmi)
 - 매크로 처벌(업무방해·과태료): [로톡뉴스](https://lawtalknews.co.kr/article/NWTL0A2K0ZDG), [아시아투데이](https://www.asiatoday.co.kr/kn/view.php?key=20260922010008394)

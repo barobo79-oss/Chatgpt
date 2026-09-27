@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -81,6 +82,19 @@ def _webhook(url: str, title: str, message: str) -> bool:
     except (urllib.error.URLError, OSError) as exc:
         print(f"   (웹훅 전송 실패: {exc})", file=sys.stderr)
         return False
+
+
+def send_telegram(token: str, chat_id: str, title: str, message: str) -> bool:
+    """텔레그램 한 채널로만 보냅니다(setup/notify-window 등에서 재사용)."""
+    return _telegram(token, chat_id, title, message)
+
+
+def telegram_creds_from_env() -> tuple[str, str]:
+    """환경변수에서 텔레그램 자격증명을 읽습니다(GitHub Actions/작업 스케줄러용).
+
+    KTX_TG_TOKEN, KTX_TG_CHAT 를 씁니다.
+    """
+    return os.environ.get("KTX_TG_TOKEN", "").strip(), os.environ.get("KTX_TG_CHAT", "").strip()
 
 
 def send(cfg: NotifyConfig, title: str, message: str) -> dict[str, bool]:
