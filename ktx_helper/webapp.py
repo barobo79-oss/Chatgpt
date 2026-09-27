@@ -17,9 +17,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import notify
-from .config import ConfigError, TRAIN_TYPES, build_config
+from .config import (
+    HOLIDAY_RANGES,
+    HOLIDAYS,
+    SEOUL_METRO,
+    STATIONS_BY_LINE,
+    TRAIN_TYPES,
+    ConfigError,
+    build_config,
+)
 from .ics import to_ics
-from .opendata import STATION_SEED
 from .windows import Reminder, default_reminders, upcoming
 
 _ALLOWED_HOSTS = ("127.0.0.1", "localhost", "[::1]")
@@ -135,9 +142,57 @@ function el(tag, attrs, children) {
   return e;
 }
 
-function stationOptions(selected) {
-  const dl = STATE.stations.map(s => `<option value="${s}">`).join('');
-  return dl;
+function knownStations() {
+  return Object.values(STATE.stationsByLine || {}).reduce((a, b) => a.concat(b), []);
+}
+
+function stationSelect(cls, selected) {
+  let opts = '<option value="">역 선택…</option>';
+  const lines = STATE.stationsByLine || {};
+  for (const line in lines) {
+    opts += `<optgroup label="${line}">`;
+    opts += lines[line].map(s => `<option value="${s}" ${s===selected?'selected':''}>${s}</option>`).join('');
+    opts += '</optgroup>';
+  }
+  const isCustom = selected && !knownStations().includes(selected);
+  opts += `<option value="__custom__" ${isCustom?'selected':''}>(직접 입력)</option>`;
+  return `<select class="${cls}">${opts}</select>`
+    + `<input class="${cls}-custom" placeholder="역 이름 직접 입력" value="${isCustom?selected:''}" `
+    + `style="${isCustom?'':'display:none'};margin-top:6px">`;
+}
+
+function depArrVal(wrap, cls) {
+  const sel = wrap.querySelector('select.' + cls);
+  if (!sel) return '';
+  if (sel.value === '__custom__') return (wrap.querySelector('.' + cls + '-custom').value || '').trim();
+  return sel.value;
+}
+
+function suggestName(dep, arr, dateStr) {
+  if (!dep || !arr) return '';
+  const base = dep + '→' + arr;
+  if (!dateStr) return base;
+  for (const r of (STATE.holidayRanges || [])) {
+    if (dateStr >= r.start && dateStr <= r.end) {
+      const metro = STATE.metro || [];
+      if (metro.includes(dep) && !metro.includes(arr)) return base + ' ' + r.name + ' 귀성';
+      if (metro.includes(arr) && !metro.includes(dep)) return base + ' ' + r.name + ' 귀경';
+      return base + ' ' + r.name + ' 연휴';
+    }
+  }
+  if (STATE.holidays && STATE.holidays[dateStr]) return base + ' ' + STATE.holidays[dateStr];
+  const wd = new Date(dateStr + 'T00:00:00').getDay(); // 0 일 .. 6 토
+  if (wd === 0 || wd === 5 || wd === 6) return base + ' 주말 여행';
+  return base;
+}
+
+function autoName(wrap) {
+  const nameInput = wrap.querySelector('.f-name');
+  // 사용자가 직접 채운 이름(마지막 자동값과 다름)은 건드리지 않습니다.
+  if (nameInput.value && nameInput.value !== (nameInput.dataset.auto || '')) return;
+  const s = suggestName(depArrVal(wrap,'f-dep'), depArrVal(wrap,'f-arr'), wrap.querySelector('.f-date').value);
+  nameInput.value = s;
+  nameInput.dataset.auto = s;
 }
 
 function tripCard(t) {
@@ -147,11 +202,11 @@ function tripCard(t) {
      `<option value="${k}" ${k===t.train_type?'selected':''}>${STATE.trainTypes[k]}</option>`).join('');
   wrap.innerHTML = `
     <button class="del" type="button">삭제</button>
-    <label>여정 이름(선택)</label>
-    <input class="f-name" placeholder="예: 서울→부산 추석" value="${t.name||''}">
+    <label>여정 이름 <span style="color:var(--brand)">(날짜·역을 고르면 자동으로 채워집니다)</span></label>
+    <input class="f-name" placeholder="예: 서울→부산 추석 귀성" value="${t.name||''}">
     <div class="row">
-      <div><label>출발역</label><input class="f-dep" list="stns" value="${t.dep||''}"></div>
-      <div><label>도착역</label><input class="f-arr" list="stns" value="${t.arr||''}"></div>
+      <div><label>출발역</label>${stationSelect('f-dep', t.dep||'')}</div>
+      <div><label>도착역</label>${stationSelect('f-arr', t.arr||'')}</div>
     </div>
     <div class="row">
       <div><label>날짜</label><input class="f-date" type="date" value="${t.date||''}"></div>
@@ -163,6 +218,17 @@ function tripCard(t) {
       <div><label>열차 종류</label><select class="f-type">${typeOpts}</select></div>
     </div>`;
   wrap.querySelector('.del').onclick = () => { wrap.remove(); refreshCount(); };
+  ['f-dep','f-arr'].forEach(cls => {
+    const sel = wrap.querySelector('select.' + cls);
+    const cust = wrap.querySelector('.' + cls + '-custom');
+    sel.addEventListener('change', () => {
+      cust.style.display = sel.value === '__custom__' ? '' : 'none';
+      autoName(wrap);
+    });
+    cust.addEventListener('input', () => autoName(wrap));
+  });
+  wrap.querySelector('.f-date').addEventListener('change', () => autoName(wrap));
+  autoName(wrap);
   return wrap;
 }
 
@@ -173,8 +239,8 @@ function refreshCount() {
 function collect() {
   const trips = [...document.querySelectorAll('.trip')].map(w => ({
     name: w.querySelector('.f-name').value.trim(),
-    dep: w.querySelector('.f-dep').value.trim(),
-    arr: w.querySelector('.f-arr').value.trim(),
+    dep: depArrVal(w, 'f-dep'),
+    arr: depArrVal(w, 'f-arr'),
     date: w.querySelector('.f-date').value,
     time_from: w.querySelector('.f-tf').value || '00:00',
     time_to: w.querySelector('.f-tt').value || '23:59',
@@ -238,7 +304,6 @@ async function testTg() {
 async function init() {
   const r = await fetch('/api/state');
   STATE = await r.json();
-  document.body.insertAdjacentHTML('beforeend', `<datalist id="stns">${stationOptions()}</datalist>`);
   const c = STATE.config || {};
   const trips = (c.trips && c.trips.length) ? c.trips : [null];
   const host = document.getElementById('trips');
@@ -320,7 +385,13 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
         elif path == "/api/state":
             self._json({
-                "stations": list(STATION_SEED.keys()),
+                "stationsByLine": STATIONS_BY_LINE,
+                "metro": sorted(SEOUL_METRO),
+                "holidays": HOLIDAYS,
+                "holidayRanges": [
+                    {"start": s.isoformat(), "end": e.isoformat(), "name": n}
+                    for s, e, n in HOLIDAY_RANGES
+                ],
                 "trainTypes": TRAIN_TYPES,
                 "config": self._load_raw() or None,
             })

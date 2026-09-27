@@ -24,6 +24,84 @@ TRAIN_TYPES = {
     "ALL": "전체",
 }
 
+# 웹 설정 화면의 역 선택 드롭다운용(노선별). 알림 기능엔 역 '이름'만 쓰이므로
+# 코드가 없어도 됩니다. 공공데이터 조회에는 opendata.STATION_SEED 의 코드가 쓰입니다.
+STATIONS_BY_LINE: dict[str, list[str]] = {
+    "수도권": ["서울", "용산", "청량리", "영등포", "광명", "수원", "상봉"],
+    "경부·경전(부산·대구·창원)": [
+        "천안아산", "오송", "대전", "김천구미", "동대구", "밀양", "구포", "부산",
+        "신경주", "울산", "포항", "진영", "창원중앙", "창원", "마산", "진주",
+    ],
+    "호남(광주·목포)": ["공주", "익산", "정읍", "광주송정", "나주", "목포"],
+    "전라(여수)": ["전주", "남원", "순천", "여천", "여수엑스포"],
+    "강릉·강원": ["만종", "횡성", "둔내", "평창", "진부", "강릉", "정동진"],
+    "중앙(안동·영주)": ["원주", "제천", "단양", "풍기", "영주", "안동"],
+}
+
+# 귀성/귀경 방향 판단용 수도권 역.
+SEOUL_METRO: set[str] = {"서울", "용산", "청량리", "영등포", "광명", "수원", "상봉"}
+
+# 명절 연휴 범위(설·추석). 이름 자동 생성에서 '귀성/귀경/연휴'를 붙입니다.
+HOLIDAY_RANGES: list[tuple[date, date, str]] = [
+    (date(2026, 2, 16), date(2026, 2, 18), "설"),
+    (date(2026, 9, 24), date(2026, 9, 26), "추석"),
+    (date(2027, 2, 6), date(2027, 2, 9), "설"),
+    (date(2027, 9, 14), date(2027, 9, 16), "추석"),
+]
+
+# 단일 공휴일(날짜 → 여정 이름에 붙일 이름).
+HOLIDAYS: dict[str, str] = {
+    "2026-01-01": "신정", "2026-03-01": "삼일절", "2026-03-02": "삼일절",
+    "2026-05-05": "어린이날", "2026-05-24": "부처님오신날", "2026-05-25": "부처님오신날",
+    "2026-06-06": "현충일", "2026-08-15": "광복절", "2026-10-03": "개천절",
+    "2026-10-09": "한글날", "2026-12-25": "크리스마스",
+    "2027-01-01": "신정", "2027-03-01": "삼일절", "2027-05-05": "어린이날",
+    "2027-05-13": "부처님오신날", "2027-06-06": "현충일", "2027-06-07": "현충일",
+    "2027-08-15": "광복절", "2027-08-16": "광복절", "2027-10-03": "개천절",
+    "2027-10-04": "개천절", "2027-10-09": "한글날", "2027-12-25": "크리스마스",
+}
+
+
+def suggest_trip_name(dep: str, arr: str, when: date | str | None) -> str:
+    """출발·도착역과 날짜로 여정 이름을 자동 제안합니다.
+
+    명절 연휴면 방향에 따라 '추석 귀성/귀경/연휴', 단일 공휴일이면 그 이름,
+    주말/금요일이면 '주말 여행'을 붙입니다. 예: '서울→부산 추석 귀성'.
+    """
+    dep = (dep or "").strip()
+    arr = (arr or "").strip()
+    if not dep or not arr:
+        return ""
+    base = f"{dep}→{arr}"
+
+    d: date | None
+    if when is None or when == "":
+        d = None
+    elif isinstance(when, date):
+        d = when
+    else:
+        try:
+            d = date.fromisoformat(str(when))
+        except ValueError:
+            d = None
+    if d is None:
+        return base
+
+    for start, end, name in HOLIDAY_RANGES:
+        if start <= d <= end:
+            if dep in SEOUL_METRO and arr not in SEOUL_METRO:
+                return f"{base} {name} 귀성"
+            if arr in SEOUL_METRO and dep not in SEOUL_METRO:
+                return f"{base} {name} 귀경"
+            return f"{base} {name} 연휴"
+
+    key = d.isoformat()
+    if key in HOLIDAYS:
+        return f"{base} {HOLIDAYS[key]}"
+    if d.weekday() in (4, 5, 6):  # 금·토·일
+        return f"{base} 주말 여행"
+    return base
+
 
 class ConfigError(ValueError):
     """설정 파일이 잘못됐을 때 발생합니다."""
